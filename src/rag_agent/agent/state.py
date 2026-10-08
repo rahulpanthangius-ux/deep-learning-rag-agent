@@ -25,38 +25,16 @@ from langgraph.graph import MessagesState
 
 @dataclass
 class ChunkMetadata:
-    """
-    Metadata attached to every chunk stored in ChromaDB.
-
-    All fields are required. The Pipeline Engineer and Corpus Architect
-    must agree on these fields before any content is authored.
-
-    Attributes
-    ----------
-    topic : str
-        Primary deep learning topic. One of: ANN, CNN, RNN, LSTM,
-        Seq2Seq, Autoencoder, SOM, BoltzmannMachine, GAN.
-    difficulty : str
-        One of: beginner, intermediate, advanced.
-    type : str
-        One of: concept_explanation, architecture, training_process,
-        use_case, comparison, mathematical_foundation.
-    source : str
-        Filename of the source document (e.g. lstm.md, hochreiter1997.pdf).
-    related_topics : list[str]
-        Topics conceptually related to this chunk. Used for context
-        enrichment and graph-style retrieval.
-    is_bonus : bool
-        True for SOM, BoltzmannMachine, and GAN topics. Used by the
-        UI to surface bonus material appropriately.
-    """
-
+    """Metadata associated with a document chunk."""
+    
     topic: str
     difficulty: str
     type: str
     source: str
+    page_or_header: str | None = None  # <--- Add this line here
     related_topics: list[str] = field(default_factory=list)
     is_bonus: bool = False
+    chunk_index: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a flat dict for ChromaDB metadata storage."""
@@ -65,21 +43,26 @@ class ChunkMetadata:
             "difficulty": self.difficulty,
             "type": self.type,
             "source": self.source,
+            "page_or_header": self.page_or_header or "",  # <--- Include in dict
             "related_topics": ",".join(self.related_topics),
-            "is_bonus": str(self.is_bonus).lower(),
+            "is_bonus": self.is_bonus,
+            "chunk_index": self.chunk_index,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ChunkMetadata:
-        """Deserialise from a ChromaDB metadata dict."""
+        """Deserialise from ChromaDB metadata dict."""
         related = data.get("related_topics", "")
+        related_list = [r.strip() for r in related.split(",") if r.strip()] if related else []
         return cls(
-            topic=data["topic"],
-            difficulty=data["difficulty"],
-            type=data["type"],
-            source=data["source"],
-            related_topics=related.split(",") if related else [],
-            is_bonus=data.get("is_bonus", "false").lower() == "true",
+            topic=data.get("topic", "General"),
+            difficulty=data.get("difficulty", "intermediate"),
+            type=data.get("type", "concept_explanation"),
+            source=data.get("source", "unknown"),
+            page_or_header=data.get("page_or_header"),  # <--- Read from dict
+            related_topics=related_list,
+            is_bonus=bool(data.get("is_bonus", False)),
+            chunk_index=int(data.get("chunk_index", 0)),
         )
 
 
@@ -230,10 +213,6 @@ class AgentState(MessagesState):
 
     Additional fields track the intermediate results of each graph node
     so subsequent nodes have access to prior outputs.
-
-    Interview talking point: explicit state typing in LangGraph makes
-    the agent's behaviour predictable, testable, and debuggable in a
-    way that implicit state management does not.
 
     Attributes
     ----------
